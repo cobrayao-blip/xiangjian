@@ -6,6 +6,7 @@ interface ScentWheelMapProps {
   solarTerms: SolarTerm[];
   activeTermId: string;
   onSelectTerm: (termId: string) => void;
+  onEnterAmbience: (termId: string) => void;
   isLight: boolean;
 }
 
@@ -13,6 +14,7 @@ export const ScentWheelMap: React.FC<ScentWheelMapProps> = ({
   solarTerms,
   activeTermId,
   onSelectTerm,
+  onEnterAmbience,
   isLight
 }) => {
   const [hoveredTermId, setHoveredTermId] = useState<string | null>(null);
@@ -337,7 +339,8 @@ export const ScentWheelMap: React.FC<ScentWheelMapProps> = ({
           <button
             type="button"
             onClick={() => {
-              onSelectTerm(displayedTerm.id);
+              setHoveredTermId(null);
+              onEnterAmbience(displayedTerm.id);
             }}
             className="px-3.5 py-1.5 rounded-xl text-[11px] font-serif font-bold tracking-widest cursor-pointer hover:scale-[1.02] active:scale-95 transition-all bg-amber-700 text-white hover:bg-amber-800 flex items-center gap-1.5 shadow-sm"
           >

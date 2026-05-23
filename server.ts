@@ -6,9 +6,47 @@ import fs from 'fs';
 import dotenv from 'dotenv';
 import { solarTerms } from './src/solarTermsData';
 
-dotenv.config();
-
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
+
+function loadEnvFiles(): void {
+  for (const name of ['.env.local', '.env']) {
+    const envPath = path.join(serverDir, name);
+    if (fs.existsSync(envPath)) {
+      dotenv.config({ path: envPath, override: true });
+    }
+  }
+}
+
+loadEnvFiles();
+
+function envTrim(key: string): string | undefined {
+  const raw = process.env[key]?.trim();
+  if (!raw) return undefined;
+  return raw.replace(/^["']|["']$/g, '');
+}
+
+function getDashScopeApiKey(): string | undefined {
+  return envTrim('DASHSCOPE_API_KEY');
+}
+
+function getQwenModel(): string {
+  return envTrim('QWEN_MODEL') || 'qwen-plus';
+}
+
+function getLlmRuntimeStatus(): {
+  configured: boolean;
+  model: string;
+  mode: 'live' | 'demo';
+  keyHint: string | null;
+} {
+  const key = getDashScopeApiKey();
+  return {
+    configured: Boolean(key),
+    model: getQwenModel(),
+    mode: key ? 'live' : 'demo',
+    keyHint: key ? `${key.slice(0, 6)}…${key.slice(-4)}` : null,
+  };
+}
 
 const VALID_TERM_IDS = new Set(solarTerms.map((t) => t.id));
 
@@ -50,13 +88,21 @@ function buildSystemInstruction(activeTerm: (typeof solarTerms)[0]): string {
 function parseJsonFromModel(raw: string): ChatApiResponse {
   const trimmed = raw.trim();
   const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const jsonStr = fenced ? fenced[1].trim() : trimmed;
-  const parsed = JSON.parse(jsonStr) as Partial<ChatApiResponse>;
-  return {
-    text: typeof parsed.text === 'string' ? parsed.text : '',
-    suggestedTermId:
-      typeof parsed.suggestedTermId === 'string' ? parsed.suggestedTermId : '',
-  };
+  let jsonStr = fenced ? fenced[1].trim() : trimmed;
+  const objectMatch = jsonStr.match(/\{[\s\S]*\}/);
+  if (objectMatch) jsonStr = objectMatch[0];
+
+  try {
+    const parsed = JSON.parse(jsonStr) as Partial<ChatApiResponse>;
+    return {
+      text: typeof parsed.text === 'string' ? parsed.text : '',
+      suggestedTermId:
+        typeof parsed.suggestedTermId === 'string' ? parsed.suggestedTermId : '',
+    };
+  } catch {
+    console.warn('[LLM] JSON 解析失败，使用模型原文作为 text');
+    return { text: trimmed, suggestedTermId: '' };
+  }
 }
 
 function normalizeSuggestedTermId(
@@ -75,15 +121,15 @@ async function callQwenChat(
   history: ChatHistoryItem[] | undefined,
   currentTermId: string
 ): Promise<ChatApiResponse> {
-  const apiKey = process.env.DASHSCOPE_API_KEY;
+  const apiKey = getDashScopeApiKey();
   if (!apiKey) {
     throw new Error('DASHSCOPE_API_KEY is not configured');
   }
 
   const baseUrl =
-    process.env.DASHSCOPE_BASE_URL ||
+    envTrim('DASHSCOPE_BASE_URL') ||
     'https://dashscope.aliyuncs.com/compatible-mode/v1';
-  const model = process.env.QWEN_MODEL || 'qwen-plus';
+  const model = getQwenModel();
 
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> =
     [{ role: 'system', content: systemInstruction }];
@@ -148,6 +194,10 @@ async function startServer() {
     res.json(solarTerms);
   });
 
+  router.get('/api/llm/status', (_req, res) => {
+    res.json(getLlmRuntimeStatus());
+  });
+
   const chatHandler = async (
     req: express.Request,
     res: express.Response
@@ -171,7 +221,8 @@ async function startServer() {
       const activeTerm =
         solarTerms.find((t) => t.id === termId) || solarTerms[0];
 
-      if (!process.env.DASHSCOPE_API_KEY) {
+      if (!getDashScopeApiKey()) {
+        console.warn('[chat] 演示模式（未读取到 DASHSCOPE_API_KEY）');
         simulateResponse(message, termId, res);
         return;
       }
@@ -183,7 +234,8 @@ async function startServer() {
         history,
         termId
       );
-      res.json(result);
+      console.log('[chat] 通义千问', getQwenModel(), 'ok');
+      res.json({ ...result, source: 'llm' as const });
     } catch (error: unknown) {
       const errMsg =
         error instanceof Error ? error.message : '网络涟漪';
@@ -191,6 +243,8 @@ async function startServer() {
       res.status(500).json({
         text: `【琴音微乱，芳华致歉】香灵在采纳四时之气时遇到了一丝迷雾（${errMsg}），不过我依然感念你的拜访。愿你深深呼吸，此时此刻便是最好的时光。`,
         suggestedTermId: '',
+        source: 'error' as const,
+        error: errMsg,
       });
     }
   };
@@ -246,7 +300,7 @@ async function startServer() {
       text = `【香灵寄语】\n\n朋友好雅致。在这个浮华喧闹的红尘里，能有此仙缘与你一同展开《廿四香笺》，实是一桩让人心生雀跃的美事。\n\n当下正值**「${activeTerm.name}」**美景。这案上的**「${activeTerm.incenseName}」**，前调清冽带有${activeTerm.scentProfile.topNotes.slice(0, 2).join('与')}之趣，后调又见${activeTerm.scentProfile.baseNotes[0]}之沉。正如古人所云：\n\n> *“${activeTerm.poem.content[0]}”*\n\n你今天过得怡然吗？还是有什么隐秘的身心感触，想跟香灵说说？。`;
     }
 
-    res.json({ text, suggestedTermId });
+    res.json({ text, suggestedTermId, source: 'demo' as const });
   }
 
   if (process.env.NODE_ENV !== 'production') {
@@ -288,15 +342,20 @@ async function startServer() {
 
   const port = Number(process.env.PORT) || 3000;
   app.listen(port, '0.0.0.0', () => {
-    const model = process.env.QWEN_MODEL || 'qwen-plus';
-    const hasKey = Boolean(process.env.DASHSCOPE_API_KEY);
+    const status = getLlmRuntimeStatus();
     const publicUrl = basePath
       ? `http://0.0.0.0:${port}${basePath}/`
       : `http://0.0.0.0:${port}/`;
     console.log(`[廿四香笺] ${publicUrl}`);
-    console.log(
-      `[LLM] 通义千问 ${model}${hasKey ? '' : '（未配置 DASHSCOPE_API_KEY，聊天为演示模式）'}`
-    );
+    if (status.mode === 'live') {
+      console.log(
+        `[LLM] 通义千问已连接 model=${status.model} key=${status.keyHint}`
+      );
+    } else {
+      console.log(
+        `[LLM] 演示模式 — 请在 ${path.join(serverDir, '.env')} 配置 DASHSCOPE_API_KEY 后重启`
+      );
+    }
   });
 }
 

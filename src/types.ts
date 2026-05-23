@@ -53,3 +53,10 @@ export interface ChatMessage {
   suggestedProducts?: CreativeProduct[];
   suggestedTermId?: string;
 }
+
+export interface LlmStatus {
+  configured: boolean;
+  model: string;
+  mode: 'live' | 'demo';
+  keyHint: string | null;
+}

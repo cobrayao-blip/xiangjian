@@ -21,7 +21,7 @@ import {
   MessageSquareOff
 } from 'lucide-react';
 import { solarTerms } from './solarTermsData';
-import { SolarTerm, ChatMessage, CreativeProduct } from './types';
+import { SolarTerm, ChatMessage, CreativeProduct, LlmStatus } from './types';
 import { ScentWheelMap } from './components/ScentWheelMap';
 import { IncenseWorkshop } from './components/IncenseWorkshop';
 import { SeasonalDiet } from './components/SeasonalDiet';
@@ -57,13 +57,14 @@ export default function App() {
     }
   ]);
   const [isChatPending, setIsChatPending] = useState<boolean>(false);
-  const [isChatExpanded, setIsChatExpanded] = useState<boolean>(true);
+  const [isChatExpanded, setIsChatExpanded] = useState<boolean>(false);
   const [activeTab, setActiveTab] = useState<'scent' | 'poem' | 'products' | 'chart' | 'workshop' | 'diet' | 'meditation'>('scent');
   const [searchTermQuery, setSearchTermQuery] = useState<string>('');
   const [termFilterSeason, setTermFilterSeason] = useState<'all' | 'spring' | 'summer' | 'autumn' | 'winter'>('all');
   
   // Poetic user-selectable presentation styles - representing four distinct seasonal pages
   const [layoutTheme, setLayoutTheme] = useState<'spring' | 'summer' | 'autumn' | 'winter'>('summer');
+  const [llmStatus, setLlmStatus] = useState<LlmStatus | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const chatEndRef = useRef<HTMLDivElement | null>(null);
@@ -76,6 +77,31 @@ export default function App() {
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isChatPending]);
+
+  // 检测服务端是否已接通通义千问（区分演示模式）
+  useEffect(() => {
+    const apiBase = `${import.meta.env.BASE_URL}`.replace(/\/?$/, '/');
+    fetch(`${apiBase}api/llm/status`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: LlmStatus | null) => {
+        if (data?.mode) setLlmStatus(data);
+      })
+      .catch(() => setLlmStatus(null));
+  }, []);
+
+  // 抽屉打开时锁定背景滚动；Esc 关闭
+  useEffect(() => {
+    if (!isChatExpanded) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setIsChatExpanded(false);
+    };
+    document.body.style.overflow = 'hidden';
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = '';
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [isChatExpanded]);
 
   // Update selected term object when ID changes
   useEffect(() => {
@@ -393,11 +419,21 @@ export default function App() {
         })
       });
 
+      const data = await res.json();
+
       if (!res.ok) {
-        throw new Error('API request failed');
+        const detail =
+          typeof data?.error === 'string'
+            ? data.error
+            : typeof data?.text === 'string'
+              ? data.text
+              : 'API request failed';
+        throw new Error(detail);
       }
 
-      const data = await res.json();
+      if (data.source === 'demo') {
+        console.warn('[chat] 当前为本地演示回复，非大模型');
+      }
       
       const agentMsgId = `msg-agent-${Date.now()}`;
       const agentMsg: ChatMessage = {
@@ -423,10 +459,17 @@ export default function App() {
 
     } catch (err) {
       console.error(err);
+      const detail = err instanceof Error ? err.message : '';
+      const isNetwork =
+        detail.includes('Failed to fetch') ||
+        detail.includes('NetworkError') ||
+        detail.includes('fetch');
       setMessages(prev => [...prev, {
         id: `msg-err-${Date.now()}`,
         sender: 'agent',
-        text: '【琴弦忽凝，暂难听香】远方的山岚笼罩了一层迷雾。此时，不妨且抚长烟，深吸一束静木之香。',
+        text: isNetwork
+          ? '【琴弦忽凝】未能连上对话服务。请确认使用 `npm run dev` 启动，并访问终端里显示的地址（默认 http://localhost:3000），不要单独开 Vite 端口。'
+          : `【琴弦忽凝，暂难听香】${detail || '远方的山岚笼罩了一层迷雾。'}此时，不妨且抚长烟，深吸一束静木之香。`,
         timestamp: new Date()
       }]);
     } finally {
@@ -641,14 +684,22 @@ export default function App() {
           </div>
         </div>
 
-
+        <button
+          type="button"
+          onClick={() => setIsChatExpanded(true)}
+          className={`shrink-0 flex items-center gap-2 px-3 py-2 rounded-xl border ${styles.cardBorder} ${styles.presetBtn} text-xs font-serif cursor-pointer transition-colors`}
+          aria-label="打开芳华香灵对话"
+        >
+          <MessageSquare size={16} />
+          <span className="hidden sm:inline">与香灵倾谈</span>
+        </button>
       </header>
 
       {/* Split screen canvas structure */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-12 gap-6 z-10 min-h-0">
         
         {/* LEFT COLUMN: 24 Solar terms list and detail (Bento Grid) - 7 columns */}
-        <section className={`${isChatExpanded ? 'lg:col-span-7' : 'lg:col-span-12'} flex flex-col gap-6 min-h-0 transition-all duration-500`}>
+        <section className="lg:col-span-12 flex flex-col gap-6 min-h-0">
           
           {/* Horizontal Scroller for the 24 terms */}
           <div className={`${styles.cardBg} rounded-3xl border ${styles.cardBorder} p-3.5 md:p-4 shadow-[0_2px_12px_rgba(0,0,0,0.02)] flex flex-col gap-3 transition-colors duration-1000`}>
@@ -1175,6 +1226,17 @@ export default function App() {
                     onSelectTerm={(termId) => {
                       setActiveTermId(termId);
                     }}
+                    onEnterAmbience={(termId) => {
+                      setActiveTab('scent');
+                      if (termId !== activeTermId) {
+                        setActiveTermId(termId);
+                      } else {
+                        setCustomSmokeColor(null);
+                        setIsBrewing(true);
+                        playBrewSound();
+                        setTimeout(() => setIsBrewing(false), 8000);
+                      }
+                    }}
                     isLight={styles.isLight}
                   />
                 </div>
@@ -1230,12 +1292,33 @@ export default function App() {
             </div>
           </div>
         </section>
+      </main>
 
-        {/* RIGHT COLUMN: Chat module (The Intelligent Agent Sanctuary) - 5 columns */}
-        <section className={`${isChatExpanded ? 'flex lg:col-span-5' : 'hidden'} ${styles.cardBg} rounded-2xl border ${styles.cardBorder} flex-col overflow-hidden shadow-md h-[550px] lg:h-auto min-h-0 transition-colors duration-1000`}>
+      {/* 右侧抽屉：芳华香灵对话（桌面 / 手机统一从右侧滑入） */}
+      <div
+        className={`fixed inset-0 z-[60] transition-opacity duration-300 ${
+          isChatExpanded ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+        }`}
+        aria-hidden={!isChatExpanded}
+      >
+        <button
+          type="button"
+          className="absolute inset-0 bg-stone-950/50 backdrop-blur-[2px] cursor-pointer"
+          onClick={() => setIsChatExpanded(false)}
+          aria-label="关闭对话抽屉"
+        />
+        <aside
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="chat-drawer-title"
+          onClick={(e) => e.stopPropagation()}
+          className={`absolute top-0 right-0 flex h-[100dvh] w-full max-w-[420px] flex-col border-l shadow-2xl transition-transform duration-300 ease-out pt-[env(safe-area-inset-top)] ${styles.cardBg} ${styles.cardBorder} ${
+            isChatExpanded ? 'translate-x-0' : 'translate-x-full'
+          }`}
+        >
           
           {/* Agent status banner */}
-          <div className={`p-4 border-b ${styles.cardBorder} bg-stone-950/20 flex items-center justify-between`}>
+          <div className={`shrink-0 p-4 border-b ${styles.cardBorder} bg-stone-950/20 flex items-center justify-between`}>
             <div className="flex items-center gap-3">
               <div className="relative">
                 <div 
@@ -1250,8 +1333,14 @@ export default function App() {
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full bg-emerald-500 border-2 border-stone-300 dark:border-[#16171c]" />
               </div>
               <div>
-                <h3 className={`text-xs font-serif font-bold ${styles.textColorMain}`}>芳华香灵 · 客斋</h3>
-                <span className="text-[10px] text-stone-500 block transition-colors duration-1000">四时心愈顾问 · 在线研读</span>
+                <h3 id="chat-drawer-title" className={`text-xs font-serif font-bold ${styles.textColorMain}`}>芳华香灵 · 客斋</h3>
+                <span className="text-[10px] text-stone-500 block transition-colors duration-1000">
+                  {llmStatus?.mode === 'live'
+                    ? `通义千问 · ${llmStatus.model}`
+                    : llmStatus?.mode === 'demo'
+                      ? '本地演示模式（未配置 API Key）'
+                      : '四时心愈顾问 · 在线研读'}
+                </span>
               </div>
             </div>
 
@@ -1287,7 +1376,7 @@ export default function App() {
           </div>
 
           {/* Interactive instruction presets block */}
-          <div className={`px-4 py-2 border-b ${styles.cardBorder} ${styles.systemBanner} shadow-inner transition-colors duration-1000`}>
+          <div className={`shrink-0 px-4 py-2 border-b ${styles.cardBorder} ${styles.systemBanner} shadow-inner transition-colors duration-1000`}>
             <span className="text-[10px] font-serif block opacity-78">您可以用这些心境短语敲门：</span>
             <div className="flex flex-wrap gap-1.5 mt-1.5 pb-1">
               {presets.map((p, idx) => (
@@ -1308,7 +1397,7 @@ export default function App() {
           </div>
 
           {/* Messages Area */}
-          <div className={`flex-1 p-4 overflow-y-auto space-y-4 relative transition-colors duration-1000 ${styles.isLight ? 'bg-[#fcfaf4]/50 font-sans' : 'bg-stone-950/20 font-sans'}`}>
+          <div className={`min-h-0 flex-1 p-4 overflow-y-auto overscroll-contain space-y-4 relative transition-colors duration-1000 ${styles.isLight ? 'bg-[#fcfaf4]/50 font-sans' : 'bg-stone-950/20 font-sans'}`}>
             
             {messages.map((msg) => {
               const isAgent = msg.sender === 'agent';
@@ -1401,7 +1490,7 @@ export default function App() {
           {/* Form input */}
           <form 
             onSubmit={handleSendMessage}
-            className={`p-3 border-t flex gap-2 items-center transition-colors duration-1000 ${
+            className={`shrink-0 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t flex gap-2 items-center transition-colors duration-1000 ${
               styles.isLight ? 'bg-[#f4efe4] border-[#e2dcd0]' : 'bg-stone-950 border-stone-800'
             }`}
           >
@@ -1422,10 +1511,8 @@ export default function App() {
               <Send size={14} />
             </button>
           </form>
-
-        </section>
-
-      </main>
+        </aside>
+      </div>
 
       {/* Elegant Footer with credit and version references */}
       <footer className={`border-t ${styles.cardBorder} ${styles.headerBg} py-3.5 px-6 text-center text-[10px] text-stone-500 font-sans z-10 transition-colors duration-1000`}>
@@ -1447,53 +1534,27 @@ export default function App() {
         </div>
       </footer>
 
-      {/* Elegant Floating Chat Toggle with traditional style pulsing ornament */}
-      <div className="fixed bottom-6 right-6 z-50 flex flex-col items-end gap-2.5 group">
-        {!isChatExpanded && (
-          <div 
-            style={{ 
-              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
-              background: 'rgba(20, 18, 14, 0.95)',
-              borderColor: hexToRgba(activeTerm.color || '#937b51', 0.4)
-            }}
-            className="border text-[#ecdcae] text-[11px] font-serif px-3.5 py-2 rounded-xl tracking-widest whitespace-nowrap shadow-2xl mr-1 flex items-center gap-1.5 cursor-pointer hover:bg-stone-900 transition-colors pointer-events-auto"
-            onClick={() => setIsChatExpanded(true)}
-          >
-            <span className="w-1.5 h-1.5 rounded-full animate-pulse" style={{ backgroundColor: activeTerm.color }} />
-            与香灵“芳华”倾谈
-          </div>
-        )}
-        
+      {/* 右侧缘打开抽屉（手机 / 桌面统一，非底部弹出） */}
+      {!isChatExpanded && (
         <button
           type="button"
-          onClick={() => setIsChatExpanded(!isChatExpanded)}
-          style={{ 
-            boxShadow: `0 8px 24px rgba(0, 0, 0, 0.5), 0 0 12px ${hexToRgba(activeTerm.color || '#d1a876', 0.35)}`,
-            borderColor: hexToRgba(activeTerm.color || '#d1a876', 0.5)
+          onClick={() => setIsChatExpanded(true)}
+          style={{
+            boxShadow: `0 4px 20px rgba(0,0,0,0.35), 0 0 10px ${hexToRgba(activeTerm.color || '#d1a876', 0.25)}`,
+            borderColor: hexToRgba(activeTerm.color || '#d1a876', 0.45),
           }}
-          className={`relative w-12 h-12 rounded-full border flex items-center justify-center cursor-pointer transition-all duration-300 transform hover:scale-110 active:scale-95 ${
-            isChatExpanded 
-              ? 'bg-amber-950/70 text-amber-550 border-amber-800/40 hover:bg-amber-950/90' 
-              : 'bg-[#151310] hover:bg-[#1a1814] text-[#ebd2a0]'
-          }`}
-          title="点击开启/关闭右侧芳华智能对话模块"
+          className="fixed right-0 top-1/2 z-50 -translate-y-1/2 flex flex-col items-center gap-1 rounded-l-xl border border-r-0 bg-[#151310]/95 px-2 py-3 text-[#ebd2a0] cursor-pointer hover:bg-[#1a1814] transition-colors max-sm:py-2.5"
+          aria-label="打开芳华香灵对话抽屉"
         >
-          {/* Subtle slow ping ripple when chat is closed */}
-          {!isChatExpanded && (
-            <span className="absolute inset-0 rounded-full animate-ping opacity-30 pointer-events-none" style={{ border: `1px solid ${activeTerm.color || '#d1a876'}` }} />
-          )}
-          
-          {isChatExpanded ? (
-            <MessageSquareOff size={18} className="relative z-10 transition-transform" />
-          ) : (
-            <MessageSquare size={18} className="relative z-10" />
-          )}
-          
-          {!isChatExpanded && (
-            <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-amber-600 rounded-full border border-[#151310]" />
-          )}
+          <MessageSquare size={18} />
+          <span
+            className="text-[10px] font-serif tracking-widest [writing-mode:vertical-rl]"
+            style={{ color: activeTerm.color || '#ebd2a0' }}
+          >
+            芳华
+          </span>
         </button>
-      </div>
+      )}
     </div>
   );
 }
