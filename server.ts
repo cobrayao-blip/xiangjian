@@ -7,13 +7,28 @@ import dotenv from 'dotenv';
 import { solarTerms } from './src/solarTermsData';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
+const projectRoot = path.join(serverDir, '..');
 
 function loadEnvFiles(): void {
-  for (const name of ['.env.local', '.env']) {
-    const envPath = path.join(serverDir, name);
-    if (fs.existsSync(envPath)) {
-      dotenv.config({ path: envPath, override: true });
+  const cwd = process.cwd();
+  const candidates: string[] = [];
+
+  if (process.env.ENV_FILE?.trim()) {
+    candidates.push(path.resolve(process.env.ENV_FILE.trim()));
+  }
+
+  for (const base of [serverDir, projectRoot, cwd]) {
+    for (const name of ['.env.local', '.env']) {
+      candidates.push(path.join(base, name));
     }
+  }
+
+  const seen = new Set<string>();
+  for (const envPath of candidates) {
+    const resolved = path.resolve(envPath);
+    if (seen.has(resolved) || !fs.existsSync(resolved)) continue;
+    seen.add(resolved);
+    dotenv.config({ path: resolved, override: true });
   }
 }
 
@@ -341,6 +356,7 @@ async function startServer() {
   }
 
   const port = Number(process.env.PORT) || 3000;
+  const cwd = process.cwd();
   app.listen(port, '0.0.0.0', () => {
     const status = getLlmRuntimeStatus();
     const publicUrl = basePath
@@ -353,7 +369,10 @@ async function startServer() {
       );
     } else {
       console.log(
-        `[LLM] 演示模式 — 请在 ${path.join(serverDir, '.env')} 配置 DASHSCOPE_API_KEY 后重启`
+        `[LLM] 演示模式 — 请在以下任一位置配置 DASHSCOPE_API_KEY 后重启：\n` +
+          `       ${path.join(projectRoot, '.env')}\n` +
+          `       ${path.join(serverDir, '.env')}\n` +
+          `       ${path.join(cwd, '.env')}`
       );
     }
   });

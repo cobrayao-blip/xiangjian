@@ -44,6 +44,10 @@ npm run build
 npm run start
 ```
 
+**上线后 LLM 无效？** 多半是服务器未配置 `DASHSCOPE_API_KEY`（本地 `.env` 不会进 Docker）。  
+自检：`https://你的域名/xiangjian/api/llm/status` 应返回 `"mode":"live"`。  
+详见 [deploy/README.md](deploy/README.md)。
+
 ## 环境变量
 
 | 变量 | 说明 |

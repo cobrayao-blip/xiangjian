@@ -1375,6 +1375,12 @@ export default function App() {
             </div>
           </div>
 
+          {llmStatus?.mode === 'demo' && (
+            <div className="shrink-0 mx-3 mt-2 px-3 py-2 rounded-lg border border-amber-600/40 bg-amber-950/15 text-[10px] text-amber-800 dark:text-amber-200 font-sans leading-relaxed">
+              当前为<strong>演示回复</strong>（服务端未配置通义千问密钥）。请在运行环境设置 <code className="font-mono text-[9px]">DASHSCOPE_API_KEY</code> 后重启，详见项目 deploy/README.md。
+            </div>
+          )}
+
           {/* Interactive instruction presets block */}
           <div className={`shrink-0 px-4 py-2 border-b ${styles.cardBorder} ${styles.systemBanner} shadow-inner transition-colors duration-1000`}>
             <span className="text-[10px] font-serif block opacity-78">您可以用这些心境短语敲门：</span>
