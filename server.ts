@@ -8,8 +8,7 @@ import { solarTerms } from './src/solarTermsData';
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const serverDir = path.dirname(fileURLToPath(import.meta.url));
 
 const VALID_TERM_IDS = new Set(solarTerms.map((t) => t.id));
 
@@ -261,7 +260,7 @@ async function startServer() {
       const url = req.originalUrl;
       try {
         let template = fs.readFileSync(
-          path.resolve(__dirname, 'index.html'),
+          path.resolve(serverDir, 'index.html'),
           'utf-8'
         );
         template = await vite.transformIndexHtml(url, template);
@@ -272,7 +271,8 @@ async function startServer() {
       }
     });
   } else {
-    const distDir = path.resolve(__dirname, 'dist');
+    // server.cjs 与 index.html、assets/ 同在 dist/ 目录
+    const distDir = serverDir;
     router.use(express.static(distDir));
     router.get('*', (_req, res) => {
       res.sendFile(path.join(distDir, 'index.html'));
