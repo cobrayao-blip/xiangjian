@@ -841,44 +841,6 @@ export default function App() {
                   </div>
                 </div>
               </div>
-
-              {/* Sound and Brew controllers side-by-side */}
-              <div className="flex items-center gap-2.5 w-full sm:w-auto text-[#ecdcae]">
-                {/* 听风 (Sound toggle controller) */}
-                <button 
-                  type="button"
-                  onClick={toggleMute}
-                  className={`px-4 py-2 rounded-xl text-xs font-serif font-semibold tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer border ${
-                    isMuted 
-                      ? 'bg-stone-900/40 border-stone-800/60 text-stone-450 hover:text-stone-300 hover:bg-stone-900/60' 
-                      : 'bg-[#0f241a]/60 border-emerald-800 text-emerald-400 shadow-sm shadow-emerald-950/20'
-                  }`}
-                  title="点击启闭传统自然山峦低吟背景乐（合成白噪声）"
-                >
-                  {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} className="animate-pulse" />}
-                  <span>{isMuted ? '听风' : '听风中'}</span>
-                </button>
-
-                {/* 试香 (Brew trigger) */}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsBrewing(true);
-                    playBrewSound();
-                    // Auto off after 8s
-                    const timer = setTimeout(() => setIsBrewing(false), 8000);
-                    return () => clearTimeout(timer);
-                  }}
-                  className={`px-5 py-2 rounded-xl text-xs font-serif font-semibold tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer bg-gradient-to-r ${
-                    isBrewing 
-                      ? 'from-amber-600 to-amber-700 text-stone-950 shadow-md scale-95 shadow-amber-900/20'
-                      : 'from-amber-900/30 to-amber-800/20 text-[#ecdcae] border border-amber-800/30 hover:border-amber-700/50 hover:from-amber-900/40'
-                  }`}
-                >
-                  <Wind size={14} className={isBrewing ? 'animate-spin' : ''} />
-                  <span>{isBrewing ? '试香中...' : '试香'}</span>
-                </button>
-              </div>
             </div>
 
             {/* Showcase Section with tabs */}
@@ -1061,9 +1023,9 @@ export default function App() {
 
                   {/* Right sub-column: Canvas live incense rise burner illustration - ALWAYS dark for high contrast smoke rendering */}
                   <div className="md:col-span-5 rounded-2xl border overflow-hidden flex flex-col justify-between p-4 h-[300px] sm:h-auto select-none relative transition-colors duration-1000 bg-[#0b0c10] border-stone-850 shadow-[inset_0_2px_12px_rgba(0,0,0,0.8)]">
-                    <div className="absolute top-3 left-3 text-[10px] font-mono text-stone-550 uppercase tracking-widest z-10 flex items-center gap-1">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-600 shadow-sm" />
-                      氤氲炉烟模拟
+                    <div className="absolute top-3 left-3 text-[10px] font-serif font-semibold text-[#cfd9dc] uppercase tracking-widest z-10 flex items-center gap-1.5">
+                      <span className="w-1.5 h-1.5 rounded-full bg-teal-400/90 shadow-sm shadow-teal-900/40" />
+                      氤氲炉烟
                     </div>
 
                     {/* Canvas simulation */}
@@ -1078,8 +1040,36 @@ export default function App() {
                       )}
                     </div>
 
-                    <div className="text-center font-serif text-[11px] text-stone-500 border-t border-stone-200/20 dark:border-stone-900 pt-2 bg-gradient-to-t from-stone-950/20">
-                      配有声学气流防尘器 · 支持背景风吟
+                    <div className="flex items-center justify-center gap-2.5 pt-3 border-t border-stone-800/60 bg-gradient-to-t from-stone-950/30 shrink-0">
+                      <button
+                        type="button"
+                        onClick={toggleMute}
+                        className={`px-4 py-2 rounded-xl text-xs font-serif font-semibold tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer border ${
+                          isMuted
+                            ? 'bg-stone-900/50 border-stone-700/60 text-[#87acb0] hover:text-[#cfd9dc] hover:bg-stone-900/70'
+                            : 'bg-[#0f241a]/70 border-teal-800/80 text-teal-300 shadow-sm shadow-teal-950/30'
+                        }`}
+                        title="点击启闭背景风吟（合成白噪声）"
+                      >
+                        {isMuted ? <VolumeX size={13} /> : <Volume2 size={13} className="animate-pulse" />}
+                        <span>{isMuted ? '听风' : '听风中'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsBrewing(true);
+                          playBrewSound();
+                          setTimeout(() => setIsBrewing(false), 8000);
+                        }}
+                        className={`px-5 py-2 rounded-xl text-xs font-serif font-semibold tracking-widest flex items-center justify-center gap-2 transition-all cursor-pointer bg-gradient-to-r ${
+                          isBrewing
+                            ? 'from-amber-600 to-amber-700 text-stone-950 shadow-md scale-95 shadow-amber-900/20'
+                            : 'from-amber-900/35 to-amber-800/25 text-[#ecdcae] border border-amber-800/35 hover:border-amber-700/50 hover:from-amber-900/45'
+                        }`}
+                      >
+                        <Wind size={14} className={isBrewing ? 'animate-spin' : ''} />
+                        <span>{isBrewing ? '试香中...' : '试香'}</span>
+                      </button>
                     </div>
                   </div>
                 </div>

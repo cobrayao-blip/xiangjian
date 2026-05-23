@@ -1,4 +1,4 @@
-import React, { useRef, useState, useCallback } from 'react';
+import React, { useRef, useState, useCallback, useEffect } from 'react';
 import { SolarTerm } from '../types';
 import { Compass } from 'lucide-react';
 
@@ -27,8 +27,11 @@ export const ScentWheelMap: React.FC<ScentWheelMapProps> = ({
   const [isTouchingWheel, setIsTouchingWheel] = useState(false);
 
   const svgRef = useRef<SVGSVGElement>(null);
+  const wheelRef = useRef<HTMLDivElement>(null);
   const touchActiveRef = useRef(false);
   const touchPreviewIdRef = useRef<string | null>(null);
+  const onSelectTermRef = useRef(onSelectTerm);
+  onSelectTermRef.current = onSelectTerm;
 
   const currentTerm = solarTerms.find((t) => t.id === activeTermId) || solarTerms[0];
   const displayedTerm = hoveredTermId
@@ -83,56 +86,100 @@ export const ScentWheelMap: React.FC<ScentWheelMapProps> = ({
     [solarTerms]
   );
 
-  const applyTouchPreview = (clientX: number, clientY: number) => {
-    const id = hitTestTermId(clientX, clientY);
-    if (id && id !== touchPreviewIdRef.current) {
-      touchPreviewIdRef.current = id;
-      setHoveredTermId(id);
-    }
-    return id;
-  };
+  const applyTouchPreview = useCallback(
+    (clientX: number, clientY: number) => {
+      const id = hitTestTermId(clientX, clientY);
+      if (id) {
+        touchPreviewIdRef.current = id;
+        setHoveredTermId(id);
+      }
+      return id;
+    },
+    [hitTestTermId]
+  );
 
-  const handleWheelPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (e.pointerType === 'mouse') return;
-
-    touchActiveRef.current = true;
-    setIsTouchingWheel(true);
-    e.currentTarget.setPointerCapture(e.pointerId);
-    applyTouchPreview(e.clientX, e.clientY);
-  };
-
-  const handleWheelPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
-    if (!touchActiveRef.current || e.pointerType === 'mouse') return;
-    applyTouchPreview(e.clientX, e.clientY);
-  };
-
-  const endTouchInteraction = (
-    e: React.PointerEvent<HTMLDivElement>,
-    shouldSelect: boolean
-  ) => {
-    if (!touchActiveRef.current || e.pointerType === 'mouse') return;
+  const finishTouchInteraction = useCallback((shouldSelect: boolean) => {
+    if (!touchActiveRef.current) return;
 
     const picked = touchPreviewIdRef.current;
     if (shouldSelect && picked) {
-      onSelectTerm(picked);
+      onSelectTermRef.current(picked);
     }
 
     touchActiveRef.current = false;
     touchPreviewIdRef.current = null;
     setIsTouchingWheel(false);
     setHoveredTermId(null);
+  }, []);
 
+  const beginTouchInteraction = useCallback(
+    (clientX: number, clientY: number) => {
+      touchActiveRef.current = true;
+      setIsTouchingWheel(true);
+      applyTouchPreview(clientX, clientY);
+    },
+    [applyTouchPreview]
+  );
+
+  /** iOS / 安卓：非 passive 的 touch 监听，避免被页面滚动抢走 */
+  useEffect(() => {
+    const el = wheelRef.current;
+    if (!el) return;
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      e.preventDefault();
+      const t = e.touches[0];
+      beginTouchInteraction(t.clientX, t.clientY);
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!touchActiveRef.current || e.touches.length !== 1) return;
+      e.preventDefault();
+      applyTouchPreview(e.touches[0].clientX, e.touches[0].clientY);
+    };
+
+    const onTouchEnd = () => finishTouchInteraction(true);
+    const onTouchCancel = () => finishTouchInteraction(false);
+
+    el.addEventListener('touchstart', onTouchStart, { passive: false });
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd, { passive: false });
+    el.addEventListener('touchcancel', onTouchCancel, { passive: false });
+
+    return () => {
+      el.removeEventListener('touchstart', onTouchStart);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchCancel);
+    };
+  }, [applyTouchPreview, beginTouchInteraction, finishTouchInteraction]);
+
+  const handleWheelPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse') return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    beginTouchInteraction(e.clientX, e.clientY);
+  };
+
+  const handleWheelPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse') return;
+    if (!touchActiveRef.current) return;
+    e.preventDefault();
+    applyTouchPreview(e.clientX, e.clientY);
+  };
+
+  const handleWheelPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType === 'mouse') return;
+    finishTouchInteraction(true);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
   };
 
-  const handleWheelPointerUp = (e: React.PointerEvent<HTMLDivElement>) => {
-    endTouchInteraction(e, true);
-  };
-
   const handleWheelPointerCancel = (e: React.PointerEvent<HTMLDivElement>) => {
-    endTouchInteraction(e, false);
+    if (e.pointerType === 'mouse') return;
+    finishTouchInteraction(false);
   };
 
   const getSeasonConfig = (season: string) => {
@@ -159,7 +206,9 @@ export const ScentWheelMap: React.FC<ScentWheelMapProps> = ({
   return (
     <div className="flex flex-col xl:flex-row gap-6 h-full items-center">
       <div
+        ref={wheelRef}
         className="w-full max-w-[340px] sm:max-w-[400px] aspect-square flex flex-col items-center justify-center relative select-none touch-none"
+        style={{ touchAction: 'none' }}
         onPointerDown={handleWheelPointerDown}
         onPointerMove={handleWheelPointerMove}
         onPointerUp={handleWheelPointerUp}
@@ -176,6 +225,7 @@ export const ScentWheelMap: React.FC<ScentWheelMapProps> = ({
           className={`w-full h-full drop-shadow-[0_4px_16px_rgba(0,0,0,0.1)] transition-transform duration-500 ${
             isTouchingWheel ? 'scale-[1.02]' : 'hover:rotate-1'
           }`}
+          style={{ touchAction: 'none' }}
         >
           <circle
             cx={CX}
@@ -359,8 +409,10 @@ export const ScentWheelMap: React.FC<ScentWheelMapProps> = ({
 
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[172px] h-[172px] rounded-full border border-stone-400/20 pointer-events-none" />
 
-        <p className="mt-2 text-[10px] text-stone-500 font-serif text-center pointer-events-none md:hidden">
-          手指沿罗盘环带滑动，预览四时香韵
+        <p className="mt-2 text-[10px] text-amber-800/80 dark:text-amber-200/80 font-serif text-center pointer-events-none md:hidden">
+          {isTouchingWheel
+            ? '正在预览…松手选定节气'
+            : '手指按住彩色环带滑动 · 松手选定'}
         </p>
       </div>
 
