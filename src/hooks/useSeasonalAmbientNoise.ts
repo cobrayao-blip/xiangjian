@@ -45,4 +45,18 @@ export function useSeasonalAmbientNoise({
       engineRef.current?.setVolume(volume);
     }
   }, [volume]);
+
+  useEffect(() => {
+    const onVis = () => {
+      const engine = engineRef.current;
+      if (!engine) return;
+      if (document.hidden) {
+        engine.stop();
+      } else if (enabledRef.current) {
+        engine.start(seasonRef.current, volumeRef.current);
+      }
+    };
+    document.addEventListener('visibilitychange', onVis);
+    return () => document.removeEventListener('visibilitychange', onVis);
+  }, []);
 }

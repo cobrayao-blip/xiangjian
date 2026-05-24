@@ -1,3 +1,5 @@
+import { getSharedAudioContext } from './sharedAudioContext';
+
 export type Season = 'spring' | 'summer' | 'autumn' | 'winter';
 
 interface SeasonNoiseProfile {
@@ -124,22 +126,15 @@ export class SeasonalWhiteNoiseEngine {
       }
       this.masterGain = null;
     }
-    if (this.ctx) {
-      void this.ctx.close();
-      this.ctx = null;
-    }
+    this.ctx = null;
   }
 
   private getCtx(): AudioContext {
     if (!this.ctx) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      this.ctx = new AudioContextClass();
+      this.ctx = getSharedAudioContext();
       this.masterGain = this.ctx.createGain();
       this.masterGain.gain.value = 1;
       this.masterGain.connect(this.ctx.destination);
-    }
-    if (this.ctx.state === 'suspended') {
-      void this.ctx.resume();
     }
     return this.ctx;
   }

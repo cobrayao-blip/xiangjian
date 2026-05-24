@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Wind, RotateCcw, Flame, Sparkles, AlertCircle, Bookmark } from 'lucide-react';
+import { Wind, RotateCcw, Flame, Sparkles, Bookmark } from 'lucide-react';
 import { SolarTerm } from '../types';
+import { getSharedAudioContext } from '../audio/sharedAudioContext';
 
 interface ScentIngredient {
   name: string;
@@ -118,8 +119,7 @@ export const IncenseWorkshop: React.FC<IncenseWorkshopProps> = ({
   // Audio synthesis feedback
   const playSoundEffect = (type: 'grind' | 'gong' | 'finish') => {
     try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const ctx = new AudioContextClass();
+      const ctx = getSharedAudioContext();
       const now = ctx.currentTime;
 
       if (type === 'gong') {

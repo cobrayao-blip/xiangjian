@@ -1,5 +1,5 @@
 import React from 'react';
-import { ChefHat, Leaf, Heart, AlertCircle, Sparkles } from 'lucide-react';
+import { ChefHat, Heart, AlertCircle } from 'lucide-react';
 import { SolarTerm } from '../types';
 import { solarTerms } from '../solarTermsData';
 
@@ -203,7 +203,7 @@ export const SeasonalDiet: React.FC<SeasonalDietProps> = ({
           </h4>
 
           <div className="space-y-3.5 flex-1 flex flex-col justify-between">
-            {data.herbs.map((herb, idx) => (
+            {data.herbs.map((herb) => (
               <div 
                 key={herb.name}
                 className={`p-3.5 rounded-xl border flex gap-3 transition-colors duration-1000 ${

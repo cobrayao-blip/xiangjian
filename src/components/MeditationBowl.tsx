@@ -1,5 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Volume2, VolumeX, Play, Pause, Activity } from 'lucide-react';
+import { getSharedAudioContext } from '../audio/sharedAudioContext';
+import {
+  getBreathingAudioEngine,
+  type BreathingPhase,
+} from '../audio/breathingCueSounds';
 
 interface MeditationBowlProps {
   isLight: boolean;
@@ -20,26 +25,15 @@ export const MeditationBowl: React.FC<MeditationBowlProps> = ({
 }) => {
   const [bowlStrikeStrength, setBowlStrikeStrength] = useState<number>(0);
   const [isStriking, setIsStriking] = useState<boolean>(false);
-  const [breathingPhase, setBreathingPhase] = useState<'inhale' | 'hold' | 'exhale'>('inhale');
+  const [breathingPhase, setBreathingPhase] = useState<BreathingPhase>('inhale');
   const [breathingSecRemaining, setBreathingSecRemaining] = useState<number>(4);
   const [breathingCyclesCompleted, setBreathingCyclesCompleted] = useState<number>(0);
-
-  const audioCtxRef = useRef<AudioContext | null>(null);
-
-  const getAudioContext = (): AudioContext => {
-    if (!audioCtxRef.current) {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      audioCtxRef.current = new AudioContextClass();
-    }
-    if (audioCtxRef.current.state === 'suspended') {
-      audioCtxRef.current.resume();
-    }
-    return audioCtxRef.current;
-  };
+  const [breathingSoundEnabled, setBreathingSoundEnabled] = useState<boolean>(false);
+  const breathingEngineRef = useRef(getBreathingAudioEngine());
 
   const strikeSingingBowl = () => {
     try {
-      const ctx = getAudioContext();
+      const ctx = getSharedAudioContext();
       const now = ctx.currentTime;
       setBowlStrikeStrength(1);
       setIsStriking(true);
@@ -161,6 +155,26 @@ export const MeditationBowl: React.FC<MeditationBowlProps> = ({
   }, [breathingPhase]);
 
   useEffect(() => {
+    const engine = breathingEngineRef.current;
+    if (breathingSoundEnabled) {
+      engine.start(breathingPhase, 0.5);
+    } else {
+      engine.stop();
+    }
+  }, [breathingSoundEnabled]);
+
+  useEffect(() => {
+    if (!breathingSoundEnabled) return;
+    breathingEngineRef.current.syncPhase(breathingPhase);
+  }, [breathingPhase, breathingSoundEnabled]);
+
+  useEffect(() => {
+    return () => {
+      breathingEngineRef.current.stop();
+    };
+  }, []);
+
+  useEffect(() => {
     if (bowlStrikeStrength > 0) {
       const sub = setInterval(() => {
         setBowlStrikeStrength(s => Math.max(0, s - 0.025));
@@ -172,11 +186,32 @@ export const MeditationBowl: React.FC<MeditationBowlProps> = ({
   const getBreathingLabel = () => {
     switch (breathingPhase) {
       case 'inhale':
-        return { action: '吸气 (Inhale)', sub: '吸入草木节气精粹，神清气足', textCol: 'text-emerald-600', scaleClass: 'scale-125' };
+        return {
+          action: '吸气 (Inhale)',
+          sub: '吸入草木节气精粹，神清气足',
+          textCol: isLight ? 'text-emerald-700' : 'text-emerald-400',
+          numCol: isLight ? 'text-emerald-900' : 'text-emerald-300',
+          labelCol: isLight ? 'text-emerald-600/80' : 'text-emerald-400/70',
+          scaleClass: 'scale-125',
+        };
       case 'hold':
-        return { action: '守一 (Hold)', sub: '静止安息，温养经络元神', textCol: 'text-amber-600', scaleClass: 'scale-120 opacity-90' };
+        return {
+          action: '守一 (Hold)',
+          sub: '静止安息，温养经络元神',
+          textCol: isLight ? 'text-amber-700' : 'text-amber-300',
+          numCol: isLight ? 'text-amber-900' : 'text-amber-200',
+          labelCol: isLight ? 'text-amber-600/80' : 'text-amber-300/70',
+          scaleClass: 'scale-120 opacity-90',
+        };
       case 'exhale':
-        return { action: '吐纳 (Exhale)', sub: '带出杂念浊毒，拂平心中尘气', textCol: 'text-indigo-600', scaleClass: 'scale-90' };
+        return {
+          action: '吐纳 (Exhale)',
+          sub: '带出杂念浊毒，拂平心中尘气',
+          textCol: isLight ? 'text-indigo-700' : 'text-indigo-300',
+          numCol: isLight ? 'text-indigo-900' : 'text-indigo-200',
+          labelCol: isLight ? 'text-indigo-600/80' : 'text-indigo-300/70',
+          scaleClass: 'scale-90',
+        };
     }
   };
 
@@ -187,20 +222,13 @@ export const MeditationBowl: React.FC<MeditationBowlProps> = ({
       <div className={`lg:col-span-7 rounded-2xl border p-5 flex flex-col justify-between items-center transition-colors duration-1000 ${
         isLight ? 'bg-white border-stone-200 shadow-sm' : 'bg-stone-900/35 border-stone-850'
       }`}>
-        <div className="w-full border-b border-stone-100 dark:border-stone-850 pb-3 flex items-center justify-between">
-          <div>
-            <h4 className={`text-xs font-serif font-black ${isLight ? 'text-stone-850' : 'text-stone-200'}`}>
-              🧘 岁时玄关 · 吐纳观音
-            </h4>
-            <span className="text-[10px] text-stone-400 font-sans block mt-0.5">
-              伴随颂钵之音与自然白噪，调整时令呼吸，舒展微循环
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1.5 bg-stone-100 dark:bg-stone-950 border border-stone-200 dark:border-stone-800 px-2.5 py-1 rounded-full text-[10.5px]">
-            <Activity size={11} className="text-emerald-500 animate-pulse" />
-            <span className="font-serif text-[10px]">合计数: {breathingCyclesCompleted} 回</span>
-          </div>
+        <div className={`w-full border-b pb-3 ${isLight ? 'border-stone-100' : 'border-teal-950/60'}`}>
+          <h4 className={`text-xs font-serif font-black ${isLight ? 'text-stone-850' : 'text-stone-200'}`}>
+            🧘 岁时玄关 · 吐纳观音
+          </h4>
+          <span className={`text-[10px] font-sans block mt-0.5 ${isLight ? 'text-stone-500' : 'text-teal-400/70'}`}>
+            伴随颂钵之音与自然白噪，调整时令呼吸，舒展微循环
+          </span>
         </div>
 
         <div className="my-6 flex flex-col items-center w-full gap-6 py-2">
@@ -226,13 +254,13 @@ export const MeditationBowl: React.FC<MeditationBowlProps> = ({
                   : 'bg-indigo-600/10 border-indigo-500/30 shadow-indigo-500/10'
             } ${breathingInfo.scaleClass}`}
           >
-            <span className="text-[10.5px] font-serif tracking-widest text-stone-400 font-medium tracking-tight uppercase">
+            <span className={`text-[10.5px] font-serif tracking-widest font-medium tracking-tight uppercase ${breathingInfo.labelCol}`}>
               {breathingPhase === 'inhale' ? '吸气 In' : breathingPhase === 'hold' ? '屏息 Hold' : '呼气 Out'}
             </span>
-            <span className="text-4xl font-serif font-black text-stone-800 dark:text-stone-100 my-1 font-mono transition-transform duration-1000">
+            <span className={`text-4xl font-serif font-black my-1 font-mono transition-colors duration-1000 ${breathingInfo.numCol} ${!isLight ? 'drop-shadow-[0_0_12px_rgba(45,212,191,0.35)]' : ''}`}>
               {breathingSecRemaining}
             </span>
-            <span className="text-[9px] font-sans text-stone-400">秒</span>
+            <span className={`text-[9px] font-sans ${isLight ? 'text-stone-500' : 'text-teal-400/60'}`}>秒</span>
 
             <div
               className={`absolute inset-[-4px] rounded-full border border-dashed animate-spin transition-all duration-1000 ${
@@ -247,23 +275,61 @@ export const MeditationBowl: React.FC<MeditationBowlProps> = ({
             <h5 className={`font-serif text-sm font-black ${breathingInfo.textCol} tracking-widest transition-colors duration-1000`}>
               {breathingInfo.action}
             </h5>
-            <p className="text-[10.5px] text-stone-400 mt-1 leading-snug max-w-[240px] mx-auto">
+            <p className={`text-[10.5px] mt-1 leading-snug max-w-[280px] mx-auto ${isLight ? 'text-stone-500' : 'text-teal-400/55'}`}>
               {breathingInfo.sub}
             </p>
           </div>
         </div>
 
-        <div className="flex gap-2 pb-1">
-          {['inhale', 'hold', 'exhale'].map((p) => (
-            <span
-              key={p}
-              className={`w-2.5 h-2.5 rounded-full block transition-all duration-[1000ms] ${
-                breathingPhase === p
-                  ? (p === 'inhale' ? 'bg-emerald-500 scale-125 shadow-sm' : p === 'hold' ? 'bg-amber-500 scale-125 shadow-sm' : 'bg-indigo-600 scale-125 shadow-sm')
-                  : 'bg-stone-200 dark:bg-stone-850 border border-stone-300 dark:border-stone-800'
-              }`}
-            />
-          ))}
+        <div className="w-full flex items-center justify-between gap-2 pb-1 px-0.5">
+          <div
+            className={`flex items-center gap-1.5 shrink-0 px-2.5 py-1 rounded-full border text-[10px] ${
+              isLight
+                ? 'bg-stone-100 border-stone-200 text-stone-700'
+                : 'bg-teal-950/70 border-teal-800/80 text-teal-100'
+            }`}
+          >
+            <Activity size={11} className={isLight ? 'text-emerald-600' : 'text-emerald-400'} />
+            <span className="font-serif whitespace-nowrap">合计 {breathingCyclesCompleted} 回</span>
+          </div>
+
+          <div className="flex gap-2 items-center justify-center">
+            {(['inhale', 'hold', 'exhale'] as const).map((p) => (
+              <span
+                key={p}
+                className={`w-2.5 h-2.5 rounded-full block transition-all duration-[1000ms] ${
+                  breathingPhase === p
+                    ? p === 'inhale'
+                      ? 'bg-emerald-500 scale-125 shadow-sm'
+                      : p === 'hold'
+                        ? 'bg-amber-500 scale-125 shadow-sm'
+                        : 'bg-indigo-500 scale-125 shadow-sm'
+                    : isLight
+                      ? 'bg-stone-200 border border-stone-300'
+                      : 'bg-teal-950/80 border border-teal-900/60'
+                }`}
+              />
+            ))}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setBreathingSoundEnabled((v) => !v)}
+            aria-pressed={breathingSoundEnabled}
+            title={breathingSoundEnabled ? '关闭吐纳法音' : '开启吐纳法音'}
+            className={`flex items-center gap-1 shrink-0 px-2.5 py-1 rounded-full border text-[10px] font-serif cursor-pointer transition-all duration-300 whitespace-nowrap ${
+              breathingSoundEnabled
+                ? isLight
+                  ? 'bg-emerald-700 border-emerald-800 text-white shadow-sm hover:bg-emerald-800'
+                  : 'bg-teal-800/90 border-teal-600 text-teal-50 shadow-[0_0_12px_rgba(45,212,191,0.15)] hover:bg-teal-700/90'
+                : isLight
+                  ? 'bg-white border-stone-200 text-stone-600 hover:border-emerald-400 hover:text-emerald-800'
+                  : 'bg-teal-950/70 border-teal-800/80 text-teal-200 hover:border-teal-600 hover:text-teal-50'
+            }`}
+          >
+            {breathingSoundEnabled ? <Volume2 size={11} /> : <VolumeX size={11} />}
+            <span>吐纳法音</span>
+          </button>
         </div>
       </div>
 

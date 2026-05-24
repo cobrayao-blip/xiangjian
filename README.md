@@ -1,7 +1,3 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
-
 # 廿四香笺
 
 融合中国传统二十四节气与香道的国风 Web 应用，智能对话由 **通义千问（阿里云百炼）** 驱动。

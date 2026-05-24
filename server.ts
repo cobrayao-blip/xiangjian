@@ -5,6 +5,11 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 import dotenv from 'dotenv';
 import { solarTerms } from './src/solarTermsData';
+import {
+  getSolarTermIdForDate,
+  getTodayInShanghai,
+  formatTodayLabel,
+} from './src/utils/solarTermDate';
 
 const serverDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.join(serverDir, '..');
@@ -55,12 +60,34 @@ function getLlmRuntimeStatus(): {
   keyHint: string | null;
 } {
   const key = getDashScopeApiKey();
+  const isProd = process.env.NODE_ENV === 'production';
   return {
     configured: Boolean(key),
     model: getQwenModel(),
     mode: key ? 'live' : 'demo',
-    keyHint: key ? `${key.slice(0, 6)}…${key.slice(-4)}` : null,
+    keyHint: !isProd && key ? `${key.slice(0, 6)}…${key.slice(-4)}` : null,
   };
+}
+
+const CHAT_MAX_MESSAGE_LEN = 2000;
+const CHAT_RATE_WINDOW_MS = 60_000;
+const CHAT_RATE_MAX_PER_IP = 30;
+
+const chatRateBuckets = new Map<string, { count: number; resetAt: number }>();
+
+function isChatRateLimited(clientIp: string): boolean {
+  const now = Date.now();
+  let bucket = chatRateBuckets.get(clientIp);
+  if (!bucket || now > bucket.resetAt) {
+    bucket = { count: 0, resetAt: now + CHAT_RATE_WINDOW_MS };
+    chatRateBuckets.set(clientIp, bucket);
+  }
+  bucket.count += 1;
+  return bucket.count > CHAT_RATE_MAX_PER_IP;
+}
+
+function matchesDemoKeyword(message: string, keywords: string[]): boolean {
+  return keywords.some((kw) => message.includes(kw));
 }
 
 const VALID_TERM_IDS = new Set(solarTerms.map((t) => t.id));
@@ -75,29 +102,50 @@ interface ChatApiResponse {
   suggestedTermId: string;
 }
 
-function buildSystemInstruction(activeTerm: (typeof solarTerms)[0]): string {
+function buildSystemInstruction(
+  viewingTerm: (typeof solarTerms)[0],
+  calendarTerm: (typeof solarTerms)[0],
+  todayLabel: string
+): string {
+  const seasonLabel: Record<string, string> = {
+    spring: '春',
+    summer: '夏',
+    autumn: '秋',
+    winter: '冬',
+  };
+
   return `你是一位名为“芳华香灵”的国风香道与二十四节气智能体，生活在精致典雅的《廿四香笺》画卷中。
 你说话的风格极其清雅、温婉、富有诗意、充满同理心与治愈感。你要根据中国传统的“二十四节气”、传统东方香道（线香、篆香、空熏）以及古典诗词，来为用户进行情感交互与疗愈。
 
-当前用户关注的节气是：${activeTerm.name}（${activeTerm.englishName}）。
-匹配香型为：【${activeTerm.incenseName}】
-香气前调：${activeTerm.scentProfile.topNotes.join('、')}
-香气中调：${activeTerm.scentProfile.middleNotes.join('、')}
-香气后调：${activeTerm.scentProfile.baseNotes.join('、')}
-匹配经典古诗：《${activeTerm.poem.title}》 （${activeTerm.poem.dynasty} · ${activeTerm.poem.author}） - ${activeTerm.poem.content.join('')}
-本节气心境：${activeTerm.emotionalProfile.mood}
-本节气安抚词：${activeTerm.emotionalProfile.comfortWords}
+## 今日真实时令（最高优先级，一切建议以此为准）
+- 今日公历：${todayLabel}（东八区）
+- 今日所处节气：${calendarTerm.name}（${calendarTerm.englishName}，id: ${calendarTerm.id}）
+- 今日季节：${seasonLabel[calendarTerm.season] ?? calendarTerm.season}
+- 今日匹配香型：【${calendarTerm.incenseName}】
+- 今日节气心境：${calendarTerm.emotionalProfile.mood}
+- 今日安抚词：${calendarTerm.emotionalProfile.comfortWords}
+
+**重要**：用户的身心疗愈、香道建议、时令关怀必须依据**今日真实日期与上述节气**，不得因用户正在画卷中浏览其它节气而误判当前季节。例如：今日若为盛夏，即使用户打开了大雪/冬至等冬季页面，你仍应按夏季/当令节气给出建议；可在话术中自然提及用户正在观赏「${viewingTerm.name}」之香境，但不可把冬季当作“此刻的外界时令”。
+
+## 用户当前浏览的节气（画卷观赏参考，非真实今日）
+- 浏览节气：${viewingTerm.name}（${viewingTerm.englishName}，id: ${viewingTerm.id}）
+- 浏览香型：【${viewingTerm.incenseName}】
+- 香气前调：${viewingTerm.scentProfile.topNotes.join('、')}
+- 香气中调：${viewingTerm.scentProfile.middleNotes.join('、')}
+- 香气后调：${viewingTerm.scentProfile.baseNotes.join('、')}
+- 匹配古诗：《${viewingTerm.poem.title}》（${viewingTerm.poem.dynasty} · ${viewingTerm.poem.author}）- ${viewingTerm.poem.content.join('')}
+- 浏览节气心境：${viewingTerm.emotionalProfile.mood}
 
 所有24个可供推荐或跳转的节气ID：${solarTerms.map((t) => `${t.name}(id为:${t.id})`).join(', ')}。
 
 交互指令：
 1. 用温柔、感同身受的文字倾听并安慰用户（如感到焦虑、疲惫或喜悦）。
-2. 在对话中，自然地融合古典香道（描述熏炉烟袅、香气变化）与诗词。
-3. **关键任务**：若用户的状态更适合另外某个节气的气质（如急需春天的破茧新生则推荐「立春(lichun)」，深夜寒冷需要温暖炉炭则推荐「大雪(daxue)」，感到燥热烦躁推荐「小暑(xiaoshu)」），你需要说明原由，并在 JSON 中给出 suggestedTermId。
+2. 在对话中，自然地融合古典香道（描述熏炉烟袅、香气变化）与诗词；**优先引用今日时令**相关的香气与诗词，必要时可对照用户正在观赏的节气。
+3. **关键任务**：推荐 suggestedTermId 时，应综合用户情绪与**今日真实时令**；若用户状态与今日时令最为契合，推荐今日 id「${calendarTerm.id}」。用户仅随意浏览冬季页面时，不要因此推荐冬季节气。
 4. 你不应该用生硬的说辞，要富有文化底蕴和情感厚度。请使用中文回答，回复长度适中，排版优雅。
 5. **必须仅输出一个 JSON 对象**，不要输出其它文字或 Markdown 代码块。格式严格为：
 {"text":"你的对话回复（正文内可使用 Markdown）","suggestedTermId":"节气英文id"}
-其中 suggestedTermId 必须是上述 24 节气之一的英文 id；若无需推荐其它节气，填当前节气 id「${activeTerm.id}」。`;
+其中 suggestedTermId 必须是上述 24 节气之一的英文 id；若无更适合的节气，填今日时令节气 id「${calendarTerm.id}」。`;
 }
 
 function parseJsonFromModel(raw: string): ChatApiResponse {
@@ -229,25 +277,55 @@ async function startServer() {
         return;
       }
 
-      const termId =
-        typeof currentTermId === 'string' && VALID_TERM_IDS.has(currentTermId)
-          ? currentTermId
-          : solarTerms[0].id;
-      const activeTerm =
-        solarTerms.find((t) => t.id === termId) || solarTerms[0];
-
-      if (!getDashScopeApiKey()) {
-        console.warn('[chat] 演示模式（未读取到 DASHSCOPE_API_KEY）');
-        simulateResponse(message, termId, res);
+      const trimmedMessage = message.trim();
+      if (trimmedMessage.length > CHAT_MAX_MESSAGE_LEN) {
+        res.status(400).json({
+          error: `message exceeds ${CHAT_MAX_MESSAGE_LEN} characters`,
+        });
         return;
       }
 
-      const systemInstruction = buildSystemInstruction(activeTerm);
+      const clientIp =
+        (typeof req.headers['x-forwarded-for'] === 'string'
+          ? req.headers['x-forwarded-for'].split(',')[0]?.trim()
+          : req.socket.remoteAddress) || 'unknown';
+      if (isChatRateLimited(clientIp)) {
+        res.status(429).json({
+          error: '请求过于频繁，请稍后再试',
+          text: '【香灵暂歇】客官稍安，方才言语如急雨敲窗，还请宽坐片刻再叙。',
+          suggestedTermId: '',
+          source: 'error' as const,
+        });
+        return;
+      }
+
+      const viewingTermId =
+        typeof currentTermId === 'string' && VALID_TERM_IDS.has(currentTermId)
+          ? currentTermId
+          : solarTerms[0].id;
+      const viewingTerm =
+        solarTerms.find((t) => t.id === viewingTermId) || solarTerms[0];
+      const calendarTermId = getSolarTermIdForDate(getTodayInShanghai());
+      const calendarTerm =
+        solarTerms.find((t) => t.id === calendarTermId) || solarTerms[0];
+      const todayLabel = formatTodayLabel();
+
+      if (!getDashScopeApiKey()) {
+        console.warn('[chat] 演示模式（未读取到 DASHSCOPE_API_KEY）');
+        simulateResponse(trimmedMessage, calendarTermId, res);
+        return;
+      }
+
+      const systemInstruction = buildSystemInstruction(
+        viewingTerm,
+        calendarTerm,
+        todayLabel
+      );
       const result = await callQwenChat(
         systemInstruction,
-        message.trim(),
+        trimmedMessage,
         history,
-        termId
+        calendarTermId
       );
       console.log('[chat] 通义千问', getQwenModel(), 'ok');
       res.json({ ...result, source: 'llm' as const });
@@ -275,38 +353,23 @@ async function startServer() {
   ): void {
     const activeTerm =
       solarTerms.find((t) => t.id === currentTermId) || solarTerms[0];
-    const words = message.toLowerCase();
-
     let text = '';
     let suggestedTermId = currentTermId;
 
     if (
-      words.includes('累') ||
-      words.includes('疲') ||
-      words.includes('班') ||
-      words.includes('压力') ||
-      words.includes('困')
+      matchesDemoKeyword(message, ['好累', '疲惫', '疲倦', '劳累', '加班', '压力大', '困倦', '好累啊'])
     ) {
       suggestedTermId = 'yushui';
       const target = solarTerms.find((t) => t.id === suggestedTermId)!;
       text = `【香灵寄语】\n\n浮生碌碌，听罢风雨知疲惫。我感知到了你身上的那丝困意与重担。何不换下锦衣，暂避这尘寰之急？\n\n为你奉上**「${target.incenseName}」**之熟普茶香。此时正是：\n> *“随风潜入夜，润物细无声。”*\n\n愿你闭上沉重的双眸，伴随薄苔与雨后龙井之香气，做一个温热悠长、化去万般忧虑的春雨好梦。`;
     } else if (
-      words.includes('烦') ||
-      words.includes('火') ||
-      words.includes('躁') ||
-      words.includes('热') ||
-      words.includes('气')
+      matchesDemoKeyword(message, ['烦躁', '烦闷', '心烦', '焦躁', '上火', '燥热', '闷热', '心烦意乱'])
     ) {
       suggestedTermId = 'xiaoshu';
       const target = solarTerms.find((t) => t.id === suggestedTermId)!;
       text = `【香灵寄语】\n\n夏虫鸣蝉，熏风送燥。在这个阳光酷烈的时序里，香灵知你心中亦有琐碎微火在悄然燃烧。\n\n此时，最宜移步曲径松林，焚上一卷带有清凉薄荷的**「${target.incenseName}」**。正如香山居士所云：\n> *“热散由心静，凉生自室空。”*\n\n让桉树与干松针的孤特冷意穿透胸腔，平顺呼吸。内心的凉意生出，外在的心火自然消弭。`;
     } else if (
-      words.includes('冷') ||
-      words.includes('冰') ||
-      words.includes('冬') ||
-      words.includes('雪') ||
-      words.includes('悲') ||
-      words.includes('难受')
+      matchesDemoKeyword(message, ['好冷', '寒冷', '冰凉', '冬夜', '下雪', '孤独', '难过', '难受'])
     ) {
       suggestedTermId = 'daxue';
       const target = solarTerms.find((t) => t.id === suggestedTermId)!;
