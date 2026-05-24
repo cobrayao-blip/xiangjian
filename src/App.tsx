@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { 
   Sparkles, 
   Send, 
@@ -26,6 +26,8 @@ import { ScentWheelMap } from './components/ScentWheelMap';
 import { IncenseWorkshop } from './components/IncenseWorkshop';
 import { SeasonalDiet } from './components/SeasonalDiet';
 import { MeditationBowl } from './components/MeditationBowl';
+import { useSeasonalAmbientNoise } from './hooks/useSeasonalAmbientNoise';
+import { getSeasonNoiseLabel } from './audio/seasonalWhiteNoise';
 
 // Helper to convert hexadecimal traditional custom colors into safe translucent RGBA strings
 function hexToRgba(hexStr: string, alpha: number): string {
@@ -58,6 +60,8 @@ export default function App() {
   ]);
   const [isChatPending, setIsChatPending] = useState<boolean>(false);
   const [isChatExpanded, setIsChatExpanded] = useState<boolean>(false);
+  const [meditationNoisePlaying, setMeditationNoisePlaying] = useState<boolean>(false);
+  const [meditationNoiseVolume, setMeditationNoiseVolume] = useState<number>(0.3);
   const [activeTab, setActiveTab] = useState<'scent' | 'poem' | 'products' | 'chart' | 'workshop' | 'diet' | 'meditation'>('scent');
   const [searchTermQuery, setSearchTermQuery] = useState<string>('');
   const [termFilterSeason, setTermFilterSeason] = useState<'all' | 'spring' | 'summer' | 'autumn' | 'winter'>('all');
@@ -117,6 +121,17 @@ export default function App() {
       return () => clearTimeout(timer);
     }
   }, [activeTermId]);
+
+  const ambientNoiseSeason = useMemo(
+    () => solarTerms.find(t => t.id === activeTermId)?.season ?? 'summer',
+    [activeTermId],
+  );
+
+  useSeasonalAmbientNoise({
+    season: ambientNoiseSeason,
+    enabled: meditationNoisePlaying,
+    volume: meditationNoiseVolume,
+  });
 
   // Incense smoke rendering logic (HTML5 Canvas responsive)
   useEffect(() => {
@@ -1259,8 +1274,12 @@ export default function App() {
                   </div>
 
                   <MeditationBowl 
-                    activeTerm={activeTerm}
                     isLight={styles.isLight}
+                    isWhiteNoisePlaying={meditationNoisePlaying}
+                    noiseVolume={meditationNoiseVolume}
+                    noiseTypeLabel={getSeasonNoiseLabel(ambientNoiseSeason)}
+                    onToggleWhiteNoise={() => setMeditationNoisePlaying(prev => !prev)}
+                    onNoiseVolumeChange={setMeditationNoiseVolume}
                   />
                 </div>
               )}
